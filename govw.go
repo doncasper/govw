@@ -119,6 +119,11 @@ func (vw *VWDaemon) Stop() error {
 // Predict method get slice of bytes (you should convert your predict string to bytes),
 // then send data to VW daemon for getting prediction result.
 func (vw *VWDaemon) Predict(pData []byte) (float64, error) {
+	// Check if we have `\n` symbol in the end of prediction string
+	if pData[len(pData)-1] != 10 {
+		pData = append(pData, 10)
+	}
+
 	_, err := vw.TCPConn.Write(pData)
 	if err != nil {
 		log.Fatal("Error via writing to VW TCP connections: ", err)
