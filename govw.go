@@ -15,12 +15,16 @@ import (
 
 const DefaultPort = 26542
 
+// VWModel contain information about VW model file
+// If `Updatable` field is `true`, the system will be track of the
+// changes model file and restart the daemon if necessary
 type VWModel struct {
 	Path      string
 	ModTime   time.Time
-	Updatable bool // If "true", the system will be track of the changes model file and restart the daemon if necessary
+	Updatable bool
 }
 
+// VWDaemon contain information about VW daemon
 type VWDaemon struct {
 	BinPath  string
 	Port     int
@@ -29,6 +33,12 @@ type VWDaemon struct {
 	Test     bool
 	Quite    bool
 	TCPConn  *net.TCPConn
+}
+
+// Predict contain result of prediction
+type Predict struct {
+	Value float64
+	Tag   string
 }
 
 func NewDaemon(binPath string, port int, children int, modelPath string, test bool, quite bool, updatable bool) *VWDaemon {
@@ -118,7 +128,7 @@ func (vw *VWDaemon) Stop() error {
 
 // Predict method get slice of bytes (you should convert your predict string to bytes),
 // then send data to VW daemon for getting prediction result.
-func (vw *VWDaemon) Predict(pData []byte) (float64, error) {
+func (vw *VWDaemon) Predict(pData []byte) (*Predict, error) {
 	// Check if we have `\n` symbol in the end of prediction string
 	if pData[len(pData)-1] != 10 {
 		pData = append(pData, 10)
@@ -134,12 +144,7 @@ func (vw *VWDaemon) Predict(pData []byte) (float64, error) {
 		log.Fatal("Error via reading VW response: ", err)
 	}
 
-	p, err := strconv.ParseFloat(strings.Trim(res, "\n"), 64)
-	if err != err {
-		log.Fatal("Error via convert VW response to float64: ", err)
-	}
-
-	return p, nil
+	return parsePredictResult(&res), nil
 }
 
 func (vw *VWDaemon) WorkersCount() (int, error) {

@@ -24,12 +24,12 @@ func main() {
 	}
 
 	// And then we can send data for prediction
-	p, err := vw.Predict([]byte("0 | 100:1 200:0.45 250:0.8"))
+	p, err := vw.Predict([]byte("1 tag_name| 100:1 200:0.45 250:0.8"))
 	if err != nil {
 		log.Fatal("Predicting error: ", err)
 	}
 
-	fmt.Println("Prediction result:", p)
+	fmt.Printf("Prediction result: %f | tag: %s", p.Value, p.Tag)
 }
 ```
 

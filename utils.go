@@ -3,6 +3,8 @@ package govw
 import (
 	"log"
 	"os/exec"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -23,6 +25,23 @@ func runCommand(command string, quiet bool) ([]byte, error) {
 	default:
 		panic("We have some problem with execing command!")
 	}
+}
+
+func parsePredictResult(predict *string) *Predict {
+	p := strings.TrimRight(*predict, "\n")
+
+	r := strings.Split(p, " ")
+
+	val, err := strconv.ParseFloat(r[0], 64)
+	if err != nil {
+		log.Fatal("", err)
+	}
+
+	if len(r) == 1 {
+		return &Predict{val, ""}
+	}
+
+	return &Predict{val, r[1]}
 }
 
 // RecreateDaemon create new VW daemon on another port (default VW port + 1),
