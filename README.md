@@ -16,7 +16,7 @@ import (
 
 func main() {
 	// First we should create the VW daemon
-	vw := govw.NewDaemon("/usr/local/bin/vw", 26542, 10, "/path/to/your.model", true, true, true)
+	vw := govw.NewDaemon("/usr/local/bin/vw", 26542, 10, "/path/to/your.model", true, true)
 
 	// Then we can run VW daemon
 	if err := vw.Run(); err != nil {
