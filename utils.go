@@ -27,7 +27,7 @@ func runCommand(command string, quiet bool) ([]byte, error) {
 	}
 }
 
-func parsePredictResult(predict *string) *Predict {
+func ParsePredictResult(predict *string) *Prediction {
 	p := strings.TrimRight(*predict, "\n")
 
 	r := strings.Split(p, " ")
@@ -38,10 +38,10 @@ func parsePredictResult(predict *string) *Predict {
 	}
 
 	if len(r) == 1 {
-		return &Predict{val, ""}
+		return &Prediction{val, ""}
 	}
 
-	return &Predict{val, r[1]}
+	return &Prediction{val, r[1]}
 }
 
 // RecreateDaemon create new VW daemon on another port (default VW port + 1),
@@ -58,7 +58,7 @@ func RecreateDaemon(d *VWDaemon) {
 		port = DefaultPort
 	}
 
-	newVW := NewDaemon(d.BinPath, port, d.Children, d.Model.Path, d.Test, d.Quite, d.Model.Updatable)
+	newVW := NewDaemon(d.BinPath, port, d.Children, d.Model.Path, d.Test, d.Model.Updatable)
 	err := newVW.Run()
 	if err != nil {
 		log.Fatal(err)

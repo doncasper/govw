@@ -15,6 +15,9 @@ import (
 
 const DefaultPort = 26542
 
+// endOfLine is represent byte code for symbol of end of line: `\n`
+const endOfLine = 10
+
 // VWModel contain information about VW model file
 // If `Updatable` field is `true`, the system will be track of the
 // changes model file and restart the daemon if necessary
@@ -31,17 +34,17 @@ type VWDaemon struct {
 	Children int
 	Model    *VWModel
 	Test     bool
-	Quite    bool
-	TCPConn  *net.TCPConn
+	TCPQueue chan *net.TCPConn
 }
 
 // Predict contain result of prediction
-type Predict struct {
+type Prediction struct {
 	Value float64
 	Tag   string
 }
 
-func NewDaemon(binPath string, port int, children int, modelPath string, test bool, quite bool, updatable bool) *VWDaemon {
+// NewDaemon method return instanse of new Vowpal Wabbit daemon
+func NewDaemon(binPath string, port int, children int, modelPath string, test bool, updatable bool) *VWDaemon {
 	info, err := os.Stat(modelPath)
 	if err != nil {
 		log.Fatal(err)
@@ -53,7 +56,6 @@ func NewDaemon(binPath string, port int, children int, modelPath string, test bo
 		Children: children,
 		Model:    &VWModel{modelPath, info.ModTime(), updatable},
 		Test:     test,
-		Quite:    quite,
 	}
 
 	if updatable {
@@ -66,15 +68,25 @@ func NewDaemon(binPath string, port int, children int, modelPath string, test bo
 func (vw *VWDaemon) getTCPConn() *net.TCPConn {
 	tcpAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", vw.Port))
 	if err != nil {
-		log.Fatal("Error via resolve IP addr: ", err)
+		log.Fatal("Error while resolving IP addr: ", err)
 	}
 
 	conn, err := net.DialTCP("tcp", nil, tcpAddr)
 	if err != nil {
-		log.Fatal("Error via dial TCP", err)
+		log.Fatal("Error while dialing TCP", err)
 	}
 
 	return conn
+}
+
+func (vw *VWDaemon) makeTCPConnQueue() {
+	size := vw.Children / 2
+
+	for i := 0; i < size; i++ {
+		vw.TCPQueue <- vw.getTCPConn()
+	}
+
+	log.Println("Queue of TCP connections for VW is created:", size)
 }
 
 // Run method send command for starting new VW daemon.
@@ -83,7 +95,7 @@ func (vw *VWDaemon) Run() error {
 		vw.Stop()
 	}
 
-	cmd := fmt.Sprintf("vw --daemon --port %d --num_children %d", vw.Port, vw.Children)
+	cmd := fmt.Sprintf("vw --daemon --threads --quiet --port %d --num_children %d", vw.Port, vw.Children)
 
 	if vw.Model.Path != "" {
 		cmd += fmt.Sprintf(" -i  %s", vw.Model.Path)
@@ -91,10 +103,6 @@ func (vw *VWDaemon) Run() error {
 
 	if vw.Test {
 		cmd += " -t"
-	}
-
-	if vw.Quite {
-		cmd += " --quiet"
 	}
 
 	if _, err := runCommand(cmd, true); err != nil {
@@ -105,9 +113,10 @@ func (vw *VWDaemon) Run() error {
 		log.Fatal("Failed to start daemon!")
 	}
 
-	vw.TCPConn = vw.getTCPConn()
-
 	log.Printf("Vowpal wabbit daemon is running on port: %d", vw.Port)
+
+	vw.TCPQueue = make(chan *net.TCPConn, vw.Children/2)
+	vw.makeTCPConnQueue()
 
 	return nil
 }
@@ -128,23 +137,27 @@ func (vw *VWDaemon) Stop() error {
 
 // Predict method get slice of bytes (you should convert your predict string to bytes),
 // then send data to VW daemon for getting prediction result.
-func (vw *VWDaemon) Predict(pData []byte) (*Predict, error) {
+func (vw *VWDaemon) Predict(pData []byte) (*Prediction, error) {
 	// Check if we have `\n` symbol in the end of prediction string
-	if pData[len(pData)-1] != 10 {
-		pData = append(pData, 10)
+	if pData[len(pData)-1] != endOfLine {
+		pData = append(pData, endOfLine)
 	}
 
-	_, err := vw.TCPConn.Write(pData)
+	conn := <-vw.TCPQueue
+
+	_, err := conn.Write(pData)
 	if err != nil {
 		log.Fatal("Error via writing to VW TCP connections: ", err)
 	}
 
-	res, err := bufio.NewReader(vw.TCPConn).ReadString('\n')
+	res, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil {
 		log.Fatal("Error via reading VW response: ", err)
 	}
 
-	return parsePredictResult(&res), nil
+	vw.TCPQueue <- conn
+
+	return ParsePredictResult(&res), nil
 }
 
 func (vw *VWDaemon) WorkersCount() (int, error) {
