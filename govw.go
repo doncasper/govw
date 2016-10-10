@@ -2,8 +2,6 @@ package govw
 
 import (
 	"bufio"
-	"bytes"
-	"encoding/gob"
 	"fmt"
 	"log"
 	"net"
@@ -12,8 +10,6 @@ import (
 	"strings"
 	"time"
 )
-
-const DefaultPort = 26542
 
 // endOfLine is represent byte code for symbol of end of line: `\n`
 const endOfLine = 10
@@ -30,9 +26,9 @@ type VWModel struct {
 // VWDaemon contain information about VW daemon
 type VWDaemon struct {
 	BinPath  string
-	Port     int
+	Port     [2]int
 	Children int
-	Model    *VWModel
+	Model    VWModel
 	Test     bool
 	TCPQueue chan *net.TCPConn
 }
@@ -44,29 +40,23 @@ type Prediction struct {
 }
 
 // NewDaemon method return instanse of new Vowpal Wabbit daemon
-func NewDaemon(binPath string, port int, children int, modelPath string, test bool, updatable bool) *VWDaemon {
+func NewDaemon(binPath string, ports [2]int, children int, modelPath string, test bool, updatable bool) VWDaemon {
 	info, err := os.Stat(modelPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	daemon := &VWDaemon{
+	return VWDaemon{
 		BinPath:  binPath,
-		Port:     port,
+		Port:     ports,
 		Children: children,
-		Model:    &VWModel{modelPath, info.ModTime(), updatable},
+		Model:    VWModel{modelPath, info.ModTime(), updatable},
 		Test:     test,
 	}
-
-	if updatable {
-		go modelFileChecker(daemon)
-	}
-
-	return daemon
 }
 
 func (vw *VWDaemon) getTCPConn() *net.TCPConn {
-	tcpAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", vw.Port))
+	tcpAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", vw.Port[0]))
 	if err != nil {
 		log.Fatal("Error while resolving IP addr: ", err)
 	}
@@ -80,13 +70,14 @@ func (vw *VWDaemon) getTCPConn() *net.TCPConn {
 }
 
 func (vw *VWDaemon) makeTCPConnQueue() {
+	log.Println("Start creating TCP connections queue:", len(vw.TCPQueue))
 	size := vw.Children / 2
 
 	for i := 0; i < size; i++ {
 		vw.TCPQueue <- vw.getTCPConn()
 	}
 
-	log.Println("Queue of TCP connections for VW is created:", size)
+	log.Println("Queue of TCP connections for VW is created:", len(vw.TCPQueue))
 }
 
 // Run method send command for starting new VW daemon.
@@ -95,7 +86,7 @@ func (vw *VWDaemon) Run() error {
 		vw.Stop()
 	}
 
-	cmd := fmt.Sprintf("vw --daemon --threads --quiet --port %d --num_children %d", vw.Port, vw.Children)
+	cmd := fmt.Sprintf("vw --daemon --threads --quiet --port %d --num_children %d", vw.Port[0], vw.Children)
 
 	if vw.Model.Path != "" {
 		cmd += fmt.Sprintf(" -i  %s", vw.Model.Path)
@@ -113,7 +104,7 @@ func (vw *VWDaemon) Run() error {
 		log.Fatal("Failed to start daemon!")
 	}
 
-	log.Printf("Vowpal wabbit daemon is running on port: %d", vw.Port)
+	log.Printf("Vowpal wabbit daemon is running on port: %d", vw.Port[0])
 
 	vw.TCPQueue = make(chan *net.TCPConn, vw.Children/2)
 	vw.makeTCPConnQueue()
@@ -123,14 +114,18 @@ func (vw *VWDaemon) Run() error {
 
 // Stop current daemon
 func (vw *VWDaemon) Stop() error {
-	cmd := fmt.Sprintf("pkill -9 -f \"vw.*--port %d\"", vw.Port)
+	log.Println("Try stop daemon on port:", vw.Port[0])
+
+	cmd := fmt.Sprintf("pkill -9 -f \"vw.*--port %d\"", vw.Port[0])
 	if _, err := runCommand(cmd, true); err != nil {
 		panic(err)
 	}
 
-	if vw.IsExist(5, 500) {
+	if vw.IsExist(10, 500) {
 		log.Fatal("Failed to stop daemon!")
 	}
+
+	log.Println("Stoped VW daemon on port:", vw.Port[0])
 
 	return nil
 }
@@ -143,25 +138,30 @@ func (vw *VWDaemon) Predict(pData []byte) (*Prediction, error) {
 		pData = append(pData, endOfLine)
 	}
 
-	conn := <-vw.TCPQueue
+	for {
+		conn := <-vw.TCPQueue
 
-	_, err := conn.Write(pData)
-	if err != nil {
-		log.Fatal("Error via writing to VW TCP connections: ", err)
+		if _, err := conn.Write(pData); err != nil {
+			log.Fatal("Error while writing to VW TCP connections: ", err, vw.Port[0])
+		}
+
+		res, err := bufio.NewReader(conn).ReadString('\n')
+		if err != nil {
+			if err.Error() != "EOF" {
+				log.Println("Error while reading VW response: ", err, vw.Port[0], conn.RemoteAddr())
+				log.Println("Retry predict value!")
+			}
+			continue
+		}
+
+		vw.TCPQueue <- conn
+
+		return ParsePredictResult(&res), nil
 	}
-
-	res, err := bufio.NewReader(conn).ReadString('\n')
-	if err != nil {
-		log.Fatal("Error via reading VW response: ", err)
-	}
-
-	vw.TCPQueue <- conn
-
-	return ParsePredictResult(&res), nil
 }
 
 func (vw *VWDaemon) WorkersCount() (int, error) {
-	cmd := fmt.Sprintf("pgrep -f 'vw.*--port %d' | wc -l", vw.Port)
+	cmd := fmt.Sprintf("pgrep -f 'vw.*--port %d' | wc -l", vw.Port[0])
 	res, err := runCommand(cmd, false)
 	if err != nil {
 		return 0, err
@@ -182,7 +182,7 @@ func (vw *VWDaemon) IsExist(tries int, delay int) bool {
 	var count int
 	var err error
 
-	log.Println("Start checking IsExist!")
+	//log.Println("Start checking IsExist!")
 	for i := 0; i < tries; i++ {
 		count, err = vw.WorkersCount()
 
@@ -198,25 +198,6 @@ func (vw *VWDaemon) IsExist(tries int, delay int) bool {
 	}
 
 	return false
-}
-
-func (vw *VWDaemon) DeepCopy() *VWDaemon {
-	var copyBuffer bytes.Buffer
-	var newVW VWDaemon
-
-	enc := gob.NewEncoder(&copyBuffer)
-	err := enc.Encode(vw)
-	if err != nil {
-		log.Fatal("Deep copy encode:", err)
-	}
-
-	dec := gob.NewDecoder(&copyBuffer)
-	err = dec.Decode(&newVW)
-	if err != nil {
-		log.Fatal("Deep copy decode:", err)
-	}
-
-	return &newVW
 }
 
 // IsChanged method checks whether the model file has been modified.
