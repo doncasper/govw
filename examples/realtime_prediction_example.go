@@ -9,7 +9,7 @@ import (
 	"github.com/DonCasper/govw"
 )
 
-var vw *govw.VWDaemon
+var vw govw.VWDaemon
 
 func predictHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -39,9 +39,13 @@ func runServer() {
 }
 
 func main() {
-	vw = govw.NewDaemon("vw", 26542, 30, "/full/path/to/some.model", true, false)
+	vw = govw.NewDaemon("vw", [2]int{26542, 26543}, 30, "/full/path/to/some.model", true, true)
 	if err := vw.Run(); err != nil {
 		log.Fatal("Error while running VW daemon!", err)
+	}
+
+	if vw.Model.Updatable {
+		go govw.ModelFileChecker(&vw)
 	}
 
 	runServer()
