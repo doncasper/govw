@@ -130,33 +130,52 @@ func (vw *VWDaemon) Stop() error {
 	return nil
 }
 
-// Predict method get slice of bytes (you should convert your predict string to bytes),
-// then send data to VW daemon for getting prediction result.
-func (vw *VWDaemon) Predict(pData []byte) (*Prediction, error) {
-	// Check if we have `\n` symbol in the end of prediction string
-	if pData[len(pData)-1] != endOfLine {
-		pData = append(pData, endOfLine)
-	}
+// Predict method get predictions strings then send data to VW daemon
+// for getting prediction result and return list of predictions result.
+func (vw *VWDaemon) Predict(pData ...string) ([]*Prediction, error) {
+	size := len(pData)
+	result := make([]*Prediction, size)
+
+	data := []byte(strings.Join(pData, "\n"))
+	data = append(data, endOfLine)
+
+	failed := false
 
 	for {
 		conn := <-vw.TCPQueue
 
-		if _, err := conn.Write(pData); err != nil {
-			log.Fatal("Error while writing to VW TCP connections: ", err, vw.Port[0])
-		}
-
-		res, err := bufio.NewReader(conn).ReadString('\n')
-		if err != nil {
-			if err.Error() != "EOF" {
-				log.Println("Error while reading VW response: ", err, vw.Port[0], conn.RemoteAddr())
-				log.Println("Retry predict value!")
-			}
+		if _, err := conn.Write(data); err != nil {
+			log.Println("Error while writing to VW TCP connections: ", err, vw.Port[0])
 			continue
 		}
 
-		vw.TCPQueue <- conn
+		reader := bufio.NewReader(conn)
 
-		return ParsePredictResult(&res), nil
+		for i := 0; i < size; i++ {
+			res, err := reader.ReadString('\n')
+			if err != nil {
+				if err.Error() != "EOF" {
+					log.Println("Error while reading VW response: ", err, vw.Port[0], conn.RemoteAddr())
+					log.Println("Retry predict value!")
+				}
+
+				failed = true
+				break
+			}
+
+			result[i] = ParsePredictResult(&res)
+		}
+
+		if failed {
+			failed = false
+			continue
+		}
+
+		if strings.HasSuffix(conn.RemoteAddr().String(), strconv.Itoa(vw.Port[0])) {
+			vw.TCPQueue <- conn
+		}
+
+		return result, nil
 	}
 }
 
