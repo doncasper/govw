@@ -4,7 +4,7 @@ Golang Vowpal Wabbit client
 Usage
 -----
 
-```golang
+```go
 package main
 
 import (
@@ -24,12 +24,12 @@ func main() {
 	}
 
 	// And then we can send data for prediction
-	p, err := vw.Predict([]byte("1 tag_name| 100:1 200:0.45 250:0.8"))
+	p, err := vw.Predict("1 tag_name| 100:1 200:0.45 250:0.8")
 	if err != nil {
 		log.Fatal("Predicting error: ", err)
 	}
 
-	fmt.Printf("Prediction result: %f | tag: %s", p.Value, p.Tag)
+	fmt.Printf("Prediction result: %f | tag: %s\n", p[0].Value, p[0].Tag)
 }
 ```
 
