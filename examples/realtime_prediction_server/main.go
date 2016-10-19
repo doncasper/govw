@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -19,11 +20,17 @@ func predictHandler(w http.ResponseWriter, r *http.Request) {
 			log.Fatal("Error while reading request body:", err)
 		}
 
-		p, err := vw.Predict(body)
+		p, err := vw.Predict(string(body))
 		if err != nil {
-			log.Fatal("Error while getting predict!")
+			log.Fatal("Error while getting predict:", err)
 		}
-		fmt.Fprint(w, p)
+
+		res, err := json.Marshal(p)
+		if err != nil {
+			log.Fatal("Error while marshaling prediction result:", err)
+		}
+
+		fmt.Fprintf(w, "%s", res)
 	default:
 		w.WriteHeader(404)
 		fmt.Fprint(w, "Method unavailable!")
@@ -35,11 +42,14 @@ func runServer() {
 	log.Println("Server running on port", addr)
 
 	http.HandleFunc("/", predictHandler)
-	http.ListenAndServe(addr, nil)
+	if err := http.ListenAndServe(addr, nil); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func main() {
-	vw = govw.NewDaemon("vw", [2]int{26542, 26543}, 30, "/full/path/to/some.model", true, true)
+	//vw = govw.NewDaemon("vw", [2]int{26542, 26543}, 1000, "/full/path/to/some.model", true, true)
+	vw = govw.NewDaemon("vw", [2]int{26542, 26543}, 1000, "/home/casper/Golab/src/smartyads/go_app_server/models/click.model", true, true)
 	if err := vw.Run(); err != nil {
 		log.Fatal("Error while running VW daemon!", err)
 	}
