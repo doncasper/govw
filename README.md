@@ -1,6 +1,13 @@
 Golang Vowpal Wabbit client
 ===========================
 
+Install
+-------
+
+```
+$ go get github.com/doncasper/govw
+```
+
 Usage
 -----
 
@@ -11,7 +18,7 @@ import (
 	"fmt"
 	"log"
 	
-	"github.com/DonCasper/govw"
+	"github.com/doncasper/govw"
 )
 
 func main() {
