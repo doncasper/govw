@@ -127,6 +127,13 @@ func (vw *VWDaemon) Stop() error {
 
 	log.Println("Stoped VW daemon on port:", vw.Port[0])
 
+	log.Printf("Start closing TCP connections to: %d (%d)\n", vw.Port[0], len(vw.TCPQueue))
+	for i := 0; i < len(vw.TCPQueue); i++ {
+		conn := <-vw.TCPQueue
+		conn.Close()
+	}
+	log.Println("End closing TCP connections to:", vw.Port[0])
+
 	return nil
 }
 
@@ -173,6 +180,8 @@ func (vw *VWDaemon) Predict(pData ...string) ([]*Prediction, error) {
 
 		if strings.HasSuffix(conn.RemoteAddr().String(), strconv.Itoa(vw.Port[0])) {
 			vw.TCPQueue <- conn
+		} else {
+			conn.Close()
 		}
 
 		return result, nil
@@ -220,15 +229,16 @@ func (vw *VWDaemon) IsExist(tries int, delay int) bool {
 }
 
 // IsChanged method checks whether the model file has been modified.
-func (model *VWModel) IsChanged() bool {
+func (model *VWModel) IsChanged() (bool, error) {
 	info, err := os.Stat(model.Path)
 	if err != nil {
-		panic(err)
+		log.Println(err)
+		return false, err
 	}
 
 	if model.ModTime != info.ModTime() {
-		return true
+		return true, nil
 	}
 
-	return false
+	return false, nil
 }

@@ -60,17 +60,22 @@ func RecreateDaemon(d *VWDaemon) {
 	tmpVW := *d
 	*d = newVW
 
-	log.Println("Finished recreating daemon on new port:", d.Port[0])
 	tmpVW.Stop()
+	log.Println("Finished recreating daemon on new port:", d.Port[0])
 }
 
 // ModelFileChecker check if our model file is changed,
 // and recreate VW daemon on a new port.
 func ModelFileChecker(vw *VWDaemon) {
 	for {
-		time.Sleep(time.Second * 1) // TODO: Move count of second to config file
+		time.Sleep(time.Second * 5) // TODO: Move count of second to settings struct
 
-		if vw.Model.IsChanged() {
+		isChanged, err := vw.Model.IsChanged()
+		if err != nil {
+			continue
+		}
+
+		if isChanged {
 			log.Println("Model file is changed!")
 			RecreateDaemon(vw)
 		}
