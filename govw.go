@@ -82,7 +82,7 @@ func (vw *VWDaemon) makeTCPConnQueue() {
 
 // Run method send command for starting new VW daemon.
 func (vw *VWDaemon) Run() error {
-	if vw.IsExist(3, 100) {
+	if vw.IsNotDead(3, 200) {
 		vw.Stop()
 	}
 
@@ -121,8 +121,16 @@ func (vw *VWDaemon) Stop() error {
 		panic(err)
 	}
 
-	if vw.IsExist(10, 500) {
-		log.Fatal("Failed to stop daemon!")
+	for i := 0; i < 5; i++ {
+		if vw.IsNotDead(10, 500) {
+			log.Println("Failed to stop daemon! Try №", i+1)
+			cmd := fmt.Sprintf("pkill -9 -f \"vw.*--port %d\"", vw.Port[0])
+			if _, err := runCommand(cmd, true); err != nil {
+				panic(err)
+			}
+		} else {
+			break
+		}
 	}
 
 	log.Println("Stoped VW daemon on port:", vw.Port[0])
@@ -204,13 +212,34 @@ func (vw *VWDaemon) WorkersCount() (int, error) {
 	return count - 1, nil
 }
 
+// IsNotDead method checks if VW daemon and all of his childrens is running.
+// You shoud defain count of tries and delay in milliseconds between each try.
+func (vw *VWDaemon) IsNotDead(tries int, delay int) bool {
+	var count int
+	var err error
+
+	for i := 0; i < tries; i++ {
+		count, err = vw.WorkersCount()
+
+		if count > 0 {
+			return true
+		}
+
+		time.Sleep(time.Millisecond * time.Duration(delay))
+	}
+	if err != nil {
+		log.Fatal("Can't getting VW workers count.", err)
+	}
+
+	return false
+}
+
 // IsExist method checks if VW daemon and all of his childrens is running.
 // You shoud defain count of tries and delay in milliseconds between each try.
 func (vw *VWDaemon) IsExist(tries int, delay int) bool {
 	var count int
 	var err error
 
-	//log.Println("Start checking IsExist!")
 	for i := 0; i < tries; i++ {
 		count, err = vw.WorkersCount()
 
